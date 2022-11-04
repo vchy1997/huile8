@@ -1,9 +1,9 @@
 // 单词列表
-const vscode = require('vscode');
-const { CommandRead } = require('./const');
-const path = require('path');
-const { localDictionary, addWordTask } = require('./dictionary');
-const statusBar = require('./status-bar');
+const vscode = require("vscode");
+const { CommandRead } = require("./const");
+const path = require("path");
+const { localDictionary, addWordTask } = require("./dictionary");
+const statusBar = require("./status-bar");
 
 module.exports = class WordProvider {
   constructor(context) {
@@ -29,7 +29,7 @@ module.exports = class WordProvider {
 
   // 删除单词
   remove(word) {
-    this.list = this.list.filter(item => word != item);
+    this.list = this.list.filter((item) => word != item);
     this.flush();
   }
 
@@ -37,28 +37,38 @@ module.exports = class WordProvider {
   flush() {
     const tree = [];
     let element = {};
-    this.list.sort().forEach(word => {
+    let elementChild = {};
+    this.list.sort().forEach((word) => {
       let prefix = word.substr(0, 1);
       if (element.prefix != prefix) {
         element = {
+          level: 1,
           prefix,
-          children: []
+          children: [],
         };
         tree.push(element);
       }
-      element.children.push(word);
+      elementChild = {
+        word,
+        level: 2,
+        children: [],
+      };
+      if (word) {
+        var dict = localDictionary[word];
+        elementChild.children = dict?.translation.split("\n") ?? [];
+      }
+      element.children.push(elementChild);
     });
     this.tree = tree;
 
     // 更新列表
     this.changeTreeDataEmitter.fire(undefined);
-    statusBar.update('单词分析完毕！');
+    statusBar.update("单词分析完毕！");
 
     // 创建翻译任务
     addWordTask(this.list, () => {
       this.flush();
     });
-
   }
 
   // 获取子节点
@@ -72,63 +82,53 @@ module.exports = class WordProvider {
 
   // 获取元素内容
   getTreeItem(element) {
-    if (typeof element === 'object') {
+    if (element?.level == 1) {
+      return new WordGroup(element);
+    } else if (element?.level == 2) {
+      return new WordItemGroup(element.word);
+    } else if (typeof element === "object") {
       return new WordGroup(element);
     } else {
-      return new WordItem(element);
+      return new WordItemLine(element);
     }
   }
 };
 
-class WordItem extends vscode.TreeItem {
+// 三级菜单 单词含义
+class WordItemLine extends vscode.TreeItem {
+  constructor(word) {
+    super(word);
+  }
+}
+
+// 二级菜单:单词
+class WordItemGroup extends vscode.TreeItem {
   constructor(word) {
     super(word);
     this.word = word;
-    this.data = localDictionary[word];
-  };
-
-  get command() {
-    return {
-      command: CommandRead,
-      title: `播放 ${this.word}`,
-      arguments: [this]
-    };
+    this.data = localDictionary[word];    
+    this.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
   }
-
+  
   get tooltip() {
-    return this.data ?
-      this.data.phonetic ?
-        [
-          `音标：[${this.data.phonetic}}]`,
-          `解释：${this.data.translation.replace(/\n/g, '\n　　　')}`
-        ].join('\n')
+    return this.data
+      ? this.data.phonetic
+        ? [
+            `音标：[${this.data.phonetic}}]`,
+            `解释：${this.data.translation.replace(/\n/g, "\n　　　")}`,
+          ].join("\n")
         : this.data.translation
-      : 'loading...';
+      : "loading...";
   }
-
-  get iconPath() {
-    return {
-      light: path.join(__filename, '..', 'resources', 'light', 'icon.svg'),
-      dark: path.join(__filename, '..', 'resources', 'dark', 'icon.svg')
-    }
-  };
-
-  get description() {
-    return this.data ?
-      this.data.translation
-      : '未收录';
-  };
-
-  get contextValue() {
-    return 'word';
-  };
-};
-
+}
+// 一级菜单
 class WordGroup extends vscode.TreeItem {
   constructor(element) {
     super(element.prefix.toUpperCase());
     this.description = `共${element.children.length}个`;
     this.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
-    this.tooltip = `${element.prefix.toUpperCase()}开头的单词${this.description}`;
-  };
+    this.tooltip = `${element.prefix.toUpperCase()}开头的单词${
+      this.description
+    }`;
+  }
 }
